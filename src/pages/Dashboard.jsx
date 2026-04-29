@@ -1,15 +1,6 @@
 import React, { useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
-import {
-  Shield,
-  Battery,
-  Activity,
-  Clock,
-  ChevronRight,
-  Search,
-  Loader2,
-  Monitor,
-} from "lucide-react";
+import { Shield, Battery, Activity, Clock, Search, Loader as Loader2, LogOut, Radio, TriangleAlert as AlertTriangle, MapPin, Gauge, RefreshCw } from "lucide-react";
 import { supabase } from "../api/supabase";
 
 export default function Dashboard() {
@@ -17,321 +8,644 @@ export default function Dashboard() {
   const [fleet, setFleet] = useState([]);
   const [loading, setLoading] = useState(true);
   const [searchTerm, setSearchTerm] = useState("");
+  const [lastRefresh, setLastRefresh] = useState(null);
+  const [refreshing, setRefreshing] = useState(false);
 
-  const fetchFleetStatus = async () => {
-    setLoading(true);
-    // Querying only existing columns: id and plate_number
+  const fetchFleetStatus = async (isManual = false) => {
+    if (isManual) setRefreshing(true);
+    else setLoading(true);
+
     const { data, error } = await supabase
       .from("vehicles")
-      .select(
-        `
-        id, 
+      .select(`
+        id,
         plate_number,
-        vehicle_logs ( battery_level, captured_at, speed )
-      `,
-      )
+        unit_name,
+        assigned_officer,
+        vehicle_logs ( battery_level, captured_at, speed, latitude, longitude )
+      `)
       .order("captured_at", { foreignTable: "vehicle_logs", ascending: false })
       .limit(1, { foreignTable: "vehicle_logs" });
 
     if (!error && data) {
       const formatted = data.map((v) => {
         const log = v.vehicle_logs?.[0];
+        const isActive = log && new Date() - new Date(log.captured_at) < 600000;
         return {
           id: v.id,
           plate: v.plate_number,
+          unitName: v.unit_name || "",
+          officer: v.assigned_officer || "",
           battery: log ? log.battery_level : 0,
           speed: log ? log.speed : 0,
-          lastSeen: log
-            ? new Date(log.captured_at).toLocaleString()
-            : "No Signal",
-          status:
-            log && new Date() - new Date(log.captured_at) < 600000
-              ? "Active"
-              : "Offline",
+          lastSeen: log ? new Date(log.captured_at).toLocaleString() : "No Signal",
+          status: isActive ? "Active" : "Offline",
         };
       });
       setFleet(formatted);
     }
+
+    setLastRefresh(new Date());
     setLoading(false);
+    setRefreshing(false);
   };
 
   const handleLogout = async () => {
     await supabase.auth.signOut();
-    window.location.href = "/login";
+    navigate("/login", { replace: true });
   };
 
   useEffect(() => {
     fetchFleetStatus();
-    const interval = setInterval(fetchFleetStatus, 30000);
+    const interval = setInterval(() => fetchFleetStatus(), 30000);
     return () => clearInterval(interval);
   }, []);
 
   const filteredFleet = fleet.filter((v) =>
-    v.plate.toLowerCase().includes(searchTerm.toLowerCase()),
+    v.plate.toLowerCase().includes(searchTerm.toLowerCase()) ||
+    v.unitName.toLowerCase().includes(searchTerm.toLowerCase()) ||
+    v.officer.toLowerCase().includes(searchTerm.toLowerCase())
   );
 
+  const activeCount = fleet.filter((v) => v.status === "Active").length;
+  const offlineCount = fleet.length - activeCount;
+  const lowBatteryCount = fleet.filter((v) => v.battery > 0 && v.battery < 20).length;
+
   return (
-    <div style={styles.container}>
-      <main style={styles.main}>
+    <div style={styles.page}>
+      <div style={styles.backgroundGlow} />
+
+      <div style={styles.container}>
         <header style={styles.header}>
           <div style={styles.branding}>
-            <div style={styles.iconCircle}>
-              <Shield size={24} color="#3b82f6" />
+            <div style={styles.logoBox}>
+              <Shield size={22} color="#3b82f6" />
             </div>
             <div>
-              <h1 style={styles.title}>INPPO Tracking </h1>
+              <h1 style={styles.title}>INPPO Tracking</h1>
               <div style={styles.badgeRow}>
-                <span style={styles.regionBadge}>LAOAG SECTOR</span>
-                <span style={styles.statusBadge}>SYSTEM READY</span>
+                <span style={styles.regionBadge}>Laoag City Sector</span>
+                <span style={activeCount > 0 ? styles.activeBadge : styles.offlineBadge}>
+                  <span style={{
+                    ...styles.dot,
+                    backgroundColor: activeCount > 0 ? "#10b981" : "#64748b",
+                    boxShadow: activeCount > 0 ? "0 0 6px #10b981" : "none",
+                  }} />
+                  {activeCount > 0 ? "System Active" : "Standby"}
+                </span>
               </div>
-            </div>
-            <div>
-              <button
-                onClick={handleLogout}
-                style={styles.logoutBtn}
-                onMouseEnter={(e) => {
-                  e.target.style.borderColor = "#ef4444"; // Red border on hover
-                  e.target.style.color = "#ef4444";
-                }}
-                onMouseLeave={(e) => {
-                  e.target.style.borderColor = "#334155";
-                  e.target.style.color = "#94a3b8";
-                }}
-              >
-                Log out
-              </button>
             </div>
           </div>
 
+          <div style={styles.headerRight}>
+            {lastRefresh && (
+              <span style={styles.lastRefreshText}>
+                Updated {lastRefresh.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}
+              </span>
+            )}
+            <button
+              onClick={() => fetchFleetStatus(true)}
+              style={styles.refreshBtn}
+              disabled={refreshing}
+              title="Refresh fleet data"
+            >
+              <RefreshCw
+                size={14}
+                style={{ animation: refreshing ? "spin 1s linear infinite" : "none" }}
+              />
+            </button>
+            <button onClick={handleLogout} style={styles.logoutBtn}>
+              <LogOut size={14} />
+              Sign Out
+            </button>
+          </div>
+        </header>
+
+        {!loading && (
+          <div style={styles.statGrid}>
+            <div style={styles.statCard}>
+              <div style={styles.statIcon}>
+                <Radio size={18} color="#3b82f6" />
+              </div>
+              <div>
+                <p style={styles.statLabel}>Active Units</p>
+                <p style={{ ...styles.statValue, color: "#3b82f6" }}>{activeCount}</p>
+              </div>
+            </div>
+            <div style={styles.statCard}>
+              <div style={{ ...styles.statIcon, background: "rgba(100,116,139,0.15)" }}>
+                <MapPin size={18} color="#64748b" />
+              </div>
+              <div>
+                <p style={styles.statLabel}>Offline Units</p>
+                <p style={{ ...styles.statValue, color: "#64748b" }}>{offlineCount}</p>
+              </div>
+            </div>
+            <div style={styles.statCard}>
+              <div style={{ ...styles.statIcon, background: "rgba(16,185,129,0.12)" }}>
+                <Activity size={18} color="#10b981" />
+              </div>
+              <div>
+                <p style={styles.statLabel}>Total Fleet</p>
+                <p style={{ ...styles.statValue, color: "#10b981" }}>{fleet.length}</p>
+              </div>
+            </div>
+            {lowBatteryCount > 0 && (
+              <div style={{ ...styles.statCard, borderColor: "rgba(245,158,11,0.3)" }}>
+                <div style={{ ...styles.statIcon, background: "rgba(245,158,11,0.12)" }}>
+                  <AlertTriangle size={18} color="#f59e0b" />
+                </div>
+                <div>
+                  <p style={styles.statLabel}>Low Battery</p>
+                  <p style={{ ...styles.statValue, color: "#f59e0b" }}>{lowBatteryCount}</p>
+                </div>
+              </div>
+            )}
+          </div>
+        )}
+
+        <div style={styles.searchRow}>
           <div style={styles.searchWrapper}>
-            <Search size={18} style={styles.searchIcon} />
+            <Search size={16} style={styles.searchIcon} />
             <input
               type="text"
-              placeholder="Search Plate Number..."
+              placeholder="Search by plate, unit name, or officer..."
               style={styles.searchInput}
               value={searchTerm}
               onChange={(e) => setSearchTerm(e.target.value)}
             />
           </div>
-        </header>
+          {!loading && (
+            <p style={styles.resultCount}>
+              {filteredFleet.length} unit{filteredFleet.length !== 1 ? "s" : ""}
+            </p>
+          )}
+        </div>
 
         {loading ? (
-          <div style={styles.loaderArea}>
-            <Loader2 className="animate-spin" size={32} color="#3b82f6" />
-            <p
-              style={{
-                fontSize: "11px",
-                letterSpacing: "2px",
-                marginTop: "10px",
-              }}
-            >
-              REFRESHING ASSET DATA...
+          <div style={styles.loaderArea} role="status" aria-live="polite">
+            <div style={styles.loaderSpinner}>
+              <Loader2 size={28} color="#3b82f6" style={{ animation: "spin 1s linear infinite" }} />
+            </div>
+            <p style={styles.loaderText}>Syncing Fleet Data...</p>
+          </div>
+        ) : filteredFleet.length === 0 ? (
+          <div style={styles.emptyState}>
+            <MapPin size={40} color="#334155" />
+            <p style={styles.emptyTitle}>No units found</p>
+            <p style={styles.emptyText}>
+              {searchTerm ? "Try a different search term." : "No vehicles are registered in the system."}
             </p>
           </div>
         ) : (
-          <>
-            <div style={styles.statGrid}>
-              <div style={styles.statBox}>
-                <p style={styles.statLabel}>ACTIVE UNITS</p>
-                <p style={styles.statValue}>
-                  {fleet.filter((v) => v.status === "Active").length}
-                </p>
-              </div>
-              <div style={styles.statBox}>
-                <p style={styles.statLabel}>TOTAL ASSETS</p>
-                <p style={styles.statValue}>{fleet.length}</p>
-              </div>
-            </div>
-
-            <div style={styles.grid}>
-              {filteredFleet.map((vehicle) => (
-                <div
-                  key={vehicle.id}
-                  style={styles.card}
-                  onClick={() => navigate(`/track/${vehicle.id}`)}
-                >
-                  <div style={styles.cardHeader}>
-                    <div style={styles.plateGroup}>
-                      <div
-                        style={{
-                          ...styles.dot,
-                          backgroundColor:
-                            vehicle.status === "Active" ? "#10b981" : "#ef4444",
-                          boxShadow:
-                            vehicle.status === "Active"
-                              ? "0 0 8px #10b981"
-                              : "none",
-                        }}
-                      />
-                      <h2 style={styles.plateText}>{vehicle.plate}</h2>
-                    </div>
-                    <Monitor size={16} color="#475569" />
-                  </div>
-
-                  <div style={styles.divider} />
-
-                  <div style={styles.dataRow}>
-                    <div style={styles.dataItem}>
-                      <Battery
-                        size={14}
-                        color={vehicle.battery < 20 ? "#ef4444" : "#10b981"}
-                      />
-                      <span style={styles.dataText}>{vehicle.battery}%</span>
-                    </div>
-                    <div style={styles.dataItem}>
-                      <Activity size={14} color="#3b82f6" />
-                      <span style={styles.dataText}>
-                        {vehicle.speed.toFixed(1)} km/h
-                      </span>
-                    </div>
-                  </div>
-
-                  <div style={styles.timeRow}>
-                    <Clock size={12} color="#64748b" />
-                    <span>LAST PING: {vehicle.lastSeen}</span>
-                  </div>
-
-                  <button style={styles.trackBtn}>OPEN TACTICAL VIEW</button>
-                </div>
-              ))}
-            </div>
-          </>
+          <div style={styles.grid}>
+            {filteredFleet.map((vehicle) => (
+              <VehicleCard
+                key={vehicle.id}
+                vehicle={vehicle}
+                onClick={() => navigate(`/track/${vehicle.id}`)}
+              />
+            ))}
+          </div>
         )}
-      </main>
+      </div>
+
+      <style>{`
+        @keyframes spin { from { transform: rotate(0deg); } to { transform: rotate(360deg); } }
+        @keyframes pulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.5; } }
+        input::placeholder { color: #475569; }
+        input:focus { border-color: #3b82f6 !important; outline: none; }
+        .vehicle-card:hover { transform: translateY(-2px); border-color: rgba(59,130,246,0.3) !important; box-shadow: 0 8px 24px rgba(0,0,0,0.3); }
+        .vehicle-card:hover .track-btn { background-color: rgba(37,99,235,0.25) !important; color: #93c5fd !important; border-color: rgba(59,130,246,0.4) !important; }
+        .refresh-btn:hover { border-color: #334155 !important; color: #94a3b8 !important; }
+        .logout-btn:hover { border-color: rgba(239,68,68,0.4) !important; color: #fca5a5 !important; }
+      `}</style>
+    </div>
+  );
+}
+
+function VehicleCard({ vehicle, onClick }) {
+  const isActive = vehicle.status === "Active";
+  const batteryColor = vehicle.battery < 20 ? "#ef4444" : vehicle.battery > 50 ? "#10b981" : "#f59e0b";
+
+  return (
+    <div
+      className="vehicle-card"
+      style={cardStyles.card}
+      onClick={onClick}
+      role="button"
+      tabIndex={0}
+      onKeyDown={(e) => e.key === "Enter" && onClick()}
+    >
+      <div style={cardStyles.cardHeader}>
+        <div style={{
+          ...cardStyles.statusBadge,
+          backgroundColor: isActive ? "rgba(16,185,129,0.12)" : "rgba(100,116,139,0.08)",
+          borderColor: isActive ? "rgba(16,185,129,0.25)" : "rgba(100,116,139,0.15)",
+        }}>
+          <span style={{
+            ...cardStyles.statusDot,
+            backgroundColor: isActive ? "#10b981" : "#475569",
+            boxShadow: isActive ? "0 0 8px #10b981" : "none",
+            animation: isActive ? "pulse 2s ease-in-out infinite" : "none",
+          }} />
+          <span style={{ ...cardStyles.statusText, color: isActive ? "#10b981" : "#64748b" }}>
+            {vehicle.status}
+          </span>
+        </div>
+        <Radio size={14} color={isActive ? "#3b82f6" : "#334155"} />
+      </div>
+
+      <h2 style={cardStyles.plate}>{vehicle.plate}</h2>
+      {vehicle.unitName && <p style={cardStyles.unitName}>{vehicle.unitName}</p>}
+      {vehicle.officer && <p style={cardStyles.officer}>{vehicle.officer}</p>}
+
+      <div style={cardStyles.divider} />
+
+      <div style={cardStyles.metricsRow}>
+        <div style={cardStyles.metric}>
+          <Battery size={14} color={batteryColor} />
+          <span style={{ ...cardStyles.metricValue, color: batteryColor }}>
+            {vehicle.battery}%
+          </span>
+        </div>
+        <div style={cardStyles.metric}>
+          <Gauge size={14} color="#3b82f6" />
+          <span style={cardStyles.metricValue}>{Number(vehicle.speed).toFixed(1)} km/h</span>
+        </div>
+      </div>
+
+      <div style={cardStyles.lastSeen}>
+        <Clock size={11} color="#475569" />
+        <span>Last ping: {vehicle.lastSeen}</span>
+      </div>
+
+      <button className="track-btn" style={cardStyles.trackBtn}>
+        Open Tactical View
+      </button>
     </div>
   );
 }
 
 const styles = {
-  container: {
+  page: {
     minHeight: "100vh",
-    backgroundColor: "#0f172a",
+    backgroundColor: "#070d1a",
     color: "#f8fafc",
-    fontFamily: "monospace",
-    padding: "0 20px",
+    fontFamily: "'Inter', system-ui, sans-serif",
+    position: "relative",
+    overflow: "hidden",
   },
-  main: { maxWidth: "1600px", margin: "0 auto", padding: "40px 0" },
+  backgroundGlow: {
+    position: "fixed",
+    inset: 0,
+    background: "radial-gradient(ellipse at 10% 20%, rgba(59,130,246,0.05) 0%, transparent 50%), radial-gradient(ellipse at 90% 80%, rgba(16,185,129,0.04) 0%, transparent 50%)",
+    pointerEvents: "none",
+    zIndex: 0,
+  },
+  container: {
+    maxWidth: "1400px",
+    margin: "0 auto",
+    padding: "32px 24px",
+    position: "relative",
+    zIndex: 1,
+  },
   header: {
     display: "flex",
     justifyContent: "space-between",
     alignItems: "center",
-    marginBottom: "40px",
-    borderBottom: "1px solid #1e293b",
-    paddingBottom: "30px",
+    marginBottom: "32px",
+    paddingBottom: "24px",
+    borderBottom: "1px solid rgba(30,41,59,0.8)",
+    flexWrap: "wrap",
+    gap: "16px",
   },
-  branding: { display: "flex", alignItems: "center", gap: "20px" },
-  iconCircle: {
-    backgroundColor: "#1e293b",
-    padding: "12px",
+  branding: {
+    display: "flex",
+    alignItems: "center",
+    gap: "16px",
+  },
+  logoBox: {
+    backgroundColor: "rgba(37,99,235,0.12)",
+    padding: "11px",
     borderRadius: "12px",
-    border: "1px solid #334155",
+    border: "1px solid rgba(59,130,246,0.2)",
+    display: "flex",
+    alignItems: "center",
+    justifyContent: "center",
   },
   title: {
-    margin: 0,
-    fontSize: "24px",
-    fontWeight: "bold",
-    letterSpacing: "1px",
+    margin: "0 0 4px",
+    fontSize: "22px",
+    fontWeight: "700",
+    color: "#f1f5f9",
+    letterSpacing: "-0.3px",
   },
-  badgeRow: { display: "flex", gap: "12px", marginTop: "4px" },
-  regionBadge: { fontSize: "10px", color: "#64748b" },
-  statusBadge: { fontSize: "10px", color: "#10b981" },
-  searchWrapper: { position: "relative" },
-  searchIcon: {
-    position: "absolute",
-    left: "15px",
-    top: "50%",
-    transform: "translateY(-50%)",
+  badgeRow: {
+    display: "flex",
+    gap: "10px",
+    alignItems: "center",
+  },
+  regionBadge: {
+    fontSize: "12px",
     color: "#64748b",
+    fontWeight: "500",
   },
-  searchInput: {
-    backgroundColor: "#1e293b",
-    border: "1px solid #334155",
-    borderRadius: "6px",
-    padding: "12px 15px 12px 45px",
-    color: "#fff",
-    fontSize: "14px",
-    width: "300px",
+  activeBadge: {
+    fontSize: "11px",
+    color: "#10b981",
+    fontWeight: "600",
+    display: "flex",
+    alignItems: "center",
+    gap: "5px",
+    backgroundColor: "rgba(16,185,129,0.08)",
+    padding: "3px 8px",
+    borderRadius: "20px",
+    border: "1px solid rgba(16,185,129,0.2)",
   },
-  statGrid: { display: "flex", gap: "20px", marginBottom: "40px" },
-  statBox: {
-    backgroundColor: "#1e293b",
-    padding: "24px",
-    borderRadius: "12px",
-    border: "1px solid #334155",
-    flex: 1,
-  },
-  statLabel: {
-    margin: "0 0 8px 0",
+  offlineBadge: {
     fontSize: "11px",
     color: "#64748b",
-    fontWeight: "bold",
+    fontWeight: "600",
+    display: "flex",
+    alignItems: "center",
+    gap: "5px",
+    backgroundColor: "rgba(100,116,139,0.08)",
+    padding: "3px 8px",
+    borderRadius: "20px",
+    border: "1px solid rgba(100,116,139,0.2)",
+  },
+  dot: {
+    width: "6px",
+    height: "6px",
+    borderRadius: "50%",
+    display: "inline-block",
+  },
+  headerRight: {
+    display: "flex",
+    alignItems: "center",
+    gap: "12px",
+  },
+  lastRefreshText: {
+    fontSize: "11px",
+    color: "#475569",
+  },
+  refreshBtn: {
+    backgroundColor: "transparent",
+    border: "1px solid #1e293b",
+    color: "#64748b",
+    width: "34px",
+    height: "34px",
+    borderRadius: "8px",
+    cursor: "pointer",
+    display: "flex",
+    alignItems: "center",
+    justifyContent: "center",
+    transition: "all 0.2s",
+    fontFamily: "inherit",
+  },
+  logoutBtn: {
+    display: "flex",
+    alignItems: "center",
+    gap: "6px",
+    backgroundColor: "transparent",
+    color: "#94a3b8",
+    border: "1px solid #1e293b",
+    padding: "8px 14px",
+    borderRadius: "8px",
+    fontSize: "12px",
+    fontWeight: "600",
+    cursor: "pointer",
+    transition: "all 0.2s",
+    fontFamily: "inherit",
+    letterSpacing: "0.2px",
+  },
+  statGrid: {
+    display: "flex",
+    gap: "16px",
+    marginBottom: "28px",
+    flexWrap: "wrap",
+  },
+  statCard: {
+    backgroundColor: "#0f1f36",
+    padding: "18px 22px",
+    borderRadius: "14px",
+    border: "1px solid rgba(59,130,246,0.12)",
+    display: "flex",
+    alignItems: "center",
+    gap: "16px",
+    flex: "1 1 160px",
+    minWidth: "140px",
+  },
+  statIcon: {
+    background: "rgba(59,130,246,0.12)",
+    width: "40px",
+    height: "40px",
+    borderRadius: "10px",
+    display: "flex",
+    alignItems: "center",
+    justifyContent: "center",
+    flexShrink: 0,
+  },
+  statLabel: {
+    margin: "0 0 3px",
+    fontSize: "11px",
+    color: "#64748b",
+    fontWeight: "600",
+    textTransform: "uppercase",
+    letterSpacing: "0.5px",
   },
   statValue: {
     margin: 0,
-    fontSize: "36px",
-    fontWeight: "bold",
-    color: "#3b82f6",
+    fontSize: "28px",
+    fontWeight: "700",
+    letterSpacing: "-0.5px",
+  },
+  searchRow: {
+    display: "flex",
+    alignItems: "center",
+    justifyContent: "space-between",
+    marginBottom: "24px",
+    gap: "16px",
+    flexWrap: "wrap",
+  },
+  searchWrapper: {
+    position: "relative",
+    flex: "1 1 300px",
+    maxWidth: "500px",
+  },
+  searchIcon: {
+    position: "absolute",
+    left: "14px",
+    top: "50%",
+    transform: "translateY(-50%)",
+    color: "#475569",
+    pointerEvents: "none",
+  },
+  searchInput: {
+    width: "100%",
+    backgroundColor: "#0f1f36",
+    border: "1px solid #1e293b",
+    borderRadius: "10px",
+    padding: "11px 14px 11px 42px",
+    color: "#f1f5f9",
+    fontSize: "14px",
+    boxSizing: "border-box",
+    transition: "border-color 0.2s",
+    fontFamily: "inherit",
+  },
+  resultCount: {
+    fontSize: "13px",
+    color: "#475569",
+    margin: 0,
+    whiteSpace: "nowrap",
+  },
+  loaderArea: {
+    display: "flex",
+    flexDirection: "column",
+    alignItems: "center",
+    justifyContent: "center",
+    padding: "80px 0",
+    gap: "16px",
+  },
+  loaderSpinner: {
+    backgroundColor: "rgba(37,99,235,0.1)",
+    width: "56px",
+    height: "56px",
+    borderRadius: "16px",
+    display: "flex",
+    alignItems: "center",
+    justifyContent: "center",
+    border: "1px solid rgba(59,130,246,0.2)",
+  },
+  loaderText: {
+    color: "#475569",
+    fontSize: "13px",
+    fontWeight: "500",
+    letterSpacing: "0.5px",
+    margin: 0,
+  },
+  emptyState: {
+    display: "flex",
+    flexDirection: "column",
+    alignItems: "center",
+    padding: "80px 0",
+    gap: "12px",
+  },
+  emptyTitle: {
+    color: "#94a3b8",
+    fontSize: "18px",
+    fontWeight: "600",
+    margin: "8px 0 0",
+  },
+  emptyText: {
+    color: "#475569",
+    fontSize: "14px",
+    margin: 0,
   },
   grid: {
     display: "grid",
-    gridTemplateColumns: "repeat(auto-fill, minmax(280px, 1fr))",
-    gap: "25px",
+    gridTemplateColumns: "repeat(auto-fill, minmax(300px, 1fr))",
+    gap: "20px",
   },
+};
+
+const cardStyles = {
   card: {
-    backgroundColor: "#1e293b",
-    borderRadius: "12px",
-    border: "1px solid #334155",
+    backgroundColor: "#0f1f36",
+    borderRadius: "16px",
+    border: "1px solid rgba(30,41,59,0.8)",
     padding: "24px",
     cursor: "pointer",
-    transition: "transform 0.2s",
+    transition: "transform 0.15s ease, border-color 0.2s, box-shadow 0.2s",
+    outline: "none",
   },
   cardHeader: {
     display: "flex",
     justifyContent: "space-between",
     alignItems: "center",
-    marginBottom: "15px",
+    marginBottom: "14px",
   },
-  plateGroup: { display: "flex", alignItems: "center", gap: "12px" },
-  dot: { width: "10px", height: "10px", borderRadius: "50%" },
-  plateText: { margin: 0, fontSize: "22px", fontWeight: "bold" },
-  divider: { height: "1px", backgroundColor: "#334155", margin: "0 0 20px 0" },
-  dataRow: { display: "flex", gap: "25px", marginBottom: "15px" },
-  dataItem: { display: "flex", alignItems: "center", gap: "8px" },
-  dataText: { fontSize: "15px", fontWeight: "bold" },
-  timeRow: {
+  statusBadge: {
     display: "flex",
     alignItems: "center",
-    gap: "8px",
-    fontSize: "10px",
-    color: "#64748b",
-    marginBottom: "20px",
+    gap: "6px",
+    padding: "4px 10px",
+    borderRadius: "20px",
+    border: "1px solid",
+  },
+  statusDot: {
+    width: "7px",
+    height: "7px",
+    borderRadius: "50%",
+    display: "inline-block",
+    flexShrink: 0,
+  },
+  statusText: {
+    fontSize: "11px",
+    fontWeight: "700",
+    textTransform: "uppercase",
+    letterSpacing: "0.5px",
+  },
+  plate: {
+    margin: "0 0 4px",
+    fontSize: "24px",
+    fontWeight: "700",
+    color: "#f1f5f9",
+    letterSpacing: "-0.3px",
+  },
+  unitName: {
+    margin: "0 0 2px",
+    fontSize: "13px",
+    color: "#94a3b8",
+    fontWeight: "500",
+  },
+  officer: {
+    margin: 0,
+    fontSize: "12px",
+    color: "#475569",
+  },
+  divider: {
+    height: "1px",
+    backgroundColor: "rgba(30,41,59,0.8)",
+    margin: "16px 0",
+  },
+  metricsRow: {
+    display: "flex",
+    gap: "20px",
+    marginBottom: "12px",
+  },
+  metric: {
+    display: "flex",
+    alignItems: "center",
+    gap: "6px",
+  },
+  metricValue: {
+    fontSize: "15px",
+    fontWeight: "700",
+    color: "#e2e8f0",
+  },
+  lastSeen: {
+    display: "flex",
+    alignItems: "center",
+    gap: "6px",
+    fontSize: "11px",
+    color: "#475569",
+    marginBottom: "18px",
   },
   trackBtn: {
     width: "100%",
-    padding: "12px",
-    backgroundColor: "#3b82f6",
-    color: "#fff",
-    border: "none",
-    borderRadius: "6px",
+    padding: "11px",
+    backgroundColor: "rgba(37,99,235,0.12)",
+    color: "#60a5fa",
+    border: "1px solid rgba(59,130,246,0.2)",
+    borderRadius: "8px",
     fontSize: "12px",
-    fontWeight: "bold",
+    fontWeight: "600",
     cursor: "pointer",
-    letterSpacing: "1px",
-  },
-  logoutBtn: {
-    display: "flex",
-    alignItems: "center",
-    gap: "8px",
-    backgroundColor: "transparent",
-    color: "#94a3b8", // Slate gray
-    border: "1px solid #334155",
-    padding: "8px 15px",
-    borderRadius: "6px",
-    fontSize: "11px",
-    fontWeight: "bold",
-    letterSpacing: "1px",
-    cursor: "pointer",
-    transition: "all 0.2s ease",
-    fontFamily: "monospace",
+    letterSpacing: "0.3px",
+    transition: "all 0.2s",
+    fontFamily: "inherit",
+    boxSizing: "border-box",
   },
 };

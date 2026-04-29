@@ -8,14 +8,16 @@ import {
 import Dashboard from "./pages/Dashboard";
 import Tracker from "./pages/Tracker";
 import Login from "./pages/Login";
+import MFASetup from "./pages/MFASetup";
 import ProtectedRoute from "./components/ProtectedRoute";
 
 function App() {
   return (
     <Router>
       <Routes>
-        {/* PUBLIC ROUTE */}
+        {/* PUBLIC ROUTES */}
         <Route path="/login" element={<Login />} />
+        <Route path="/mfa-setup" element={<MFASetup />} />
 
         {/* PROTECTED ROUTES */}
         <Route

@@ -1,341 +1,392 @@
 import React, { useState } from "react";
+import { useNavigate } from "react-router-dom";
 import { supabase } from "../api/supabase";
-import {
-  Shield,
-  Lock,
-  User,
-  Loader2,
-  AlertCircle,
-  Smartphone,
-  ArrowLeft,
-  CheckCircle2,
-} from "lucide-react";
+import { Shield, Lock, User, Loader as Loader2, CircleAlert as AlertCircle, Smartphone, ArrowLeft } from "lucide-react";
 
 export default function Login() {
-  // UI States
+  const navigate = useNavigate();
   const [isMfaStep, setIsMfaStep] = useState(false);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState(null);
-
-  // Form States
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [mfaCode, setMfaCode] = useState("");
 
-  // --- STEP 1: INITIAL PASSWORD LOGIN ---
   const handlePasswordLogin = async (e) => {
     e.preventDefault();
     setLoading(true);
     setError(null);
 
-    const { data, error } = await supabase.auth.signInWithPassword({
-      email,
-      password,
-    });
+    const { error: signInError } = await supabase.auth.signInWithPassword({ email, password });
 
-    if (error) {
-      setError(error.message);
+    if (signInError) {
+      setError(signInError.message);
       setLoading(false);
       return;
     }
 
-    // --- THE LOGIC CHECK ---
-    // 1. Check if the user already has an MFA factor enrolled
     const { data: factors } = await supabase.auth.mfa.listFactors();
 
-    console.log(factors);
-
     if (factors && factors.totp.length > 0) {
-      // User is enrolled -> Show the "Enter 6-digit code" screen
       setIsMfaStep(true);
     } else {
-      // User is NOT enrolled -> Redirect to a special Setup page
-      // OR show a "Set up MFA" button
-      window.location.href = "/mfa-setup";
+      navigate("/mfa-setup", { replace: true });
     }
     setLoading(false);
   };
 
-  // --- STEP 2: VERIFY GOOGLE AUTHENTICATOR CODE ---
   const handleMfaVerify = async (e) => {
     e.preventDefault();
     setLoading(true);
     setError(null);
 
-    // 1. Get the list of factors for the user
-    const { data: factors, error: factorsError } =
-      await supabase.auth.mfa.listFactors();
+    const { data: factors, error: factorsError } = await supabase.auth.mfa.listFactors();
     if (factorsError) {
       setError(factorsError.message);
       setLoading(false);
       return;
     }
 
-    const totpFactor = factors.totp[0]; // Get the Google Authenticator factor
+    const totpFactor = factors.totp[0];
     if (!totpFactor) {
       setError("No Authenticator found for this account.");
       setLoading(false);
       return;
     }
 
-    // 2. Challenge and Verify the 6-digit code
     const { error: verifyError } = await supabase.auth.mfa.challengeAndVerify({
       factorId: totpFactor.id,
       code: mfaCode,
     });
 
     if (verifyError) {
-      setError("Invalid Authenticator Code");
+      setError("Invalid Authenticator Code. Please try again.");
       setLoading(false);
     } else {
-      // MFA Success
-      window.location.href = "/";
+      navigate("/", { replace: true });
     }
   };
 
   return (
     <div style={styles.container}>
+      <div style={styles.backdrop} />
+
       <div style={styles.loginBox}>
-        {/* HEADER */}
         <div style={styles.header}>
-          <div style={styles.iconCircle}>
+          <div style={isMfaStep ? styles.iconCircleGreen : styles.iconCircle}>
             {isMfaStep ? (
-              <Smartphone size={32} color="#10b981" />
+              <Smartphone size={28} color="#10b981" />
             ) : (
-              <Shield size={32} color="#3b82f6" />
+              <Shield size={28} color="#3b82f6" />
             )}
           </div>
-          <h1 style={styles.title}>INPPO Tactical GPS Command Center</h1>
+          <h1 style={styles.title}>
+            {isMfaStep ? "Authenticator Verification" : "INPPO Command Center"}
+          </h1>
           <p style={styles.subtitle}>
             {isMfaStep
-              ? "MULTI-FACTOR AUTHENTICATION"
-              : "LAOAG CITY SECTOR • SECURE ACCESS"}
+              ? "Enter the 6-digit code from your authenticator app"
+              : "Laoag City Sector — Secure Access Portal"}
           </p>
         </div>
 
         {error && (
-          <div style={styles.errorBox}>
-            <AlertCircle size={16} />
+          <div style={styles.errorBox} role="alert">
+            <AlertCircle size={15} style={{ flexShrink: 0 }} />
             <span>{error}</span>
           </div>
         )}
 
-        {/* --- PHASE 1: EMAIL & PASSWORD --- */}
         {!isMfaStep ? (
-          <form onSubmit={handlePasswordLogin} style={styles.form}>
+          <form onSubmit={handlePasswordLogin} style={styles.form} noValidate>
             <div style={styles.inputGroup}>
-              <label style={styles.label}>Email Address</label>
+              <label htmlFor="email" style={styles.label}>Email Address</label>
               <div style={styles.inputWrapper}>
-                <User size={18} style={styles.inputIcon} />
+                <User size={16} style={styles.inputIcon} aria-hidden="true" />
                 <input
+                  id="email"
                   type="email"
-                  placeholder="name@pnp.gov.ph"
+                  placeholder="officer@pnp.gov.ph"
                   style={styles.input}
                   value={email}
                   onChange={(e) => setEmail(e.target.value)}
                   required
+                  autoComplete="email"
                 />
               </div>
             </div>
 
             <div style={styles.inputGroup}>
-              <label style={styles.label}>Password</label>
+              <label htmlFor="password" style={styles.label}>Password</label>
               <div style={styles.inputWrapper}>
-                <Lock size={18} style={styles.inputIcon} />
+                <Lock size={16} style={styles.inputIcon} aria-hidden="true" />
                 <input
+                  id="password"
                   type="password"
-                  placeholder="••••••••"
+                  placeholder="Enter your password"
                   style={styles.input}
                   value={password}
                   onChange={(e) => setPassword(e.target.value)}
                   required
+                  autoComplete="current-password"
                 />
               </div>
             </div>
 
             <button type="submit" style={styles.loginBtn} disabled={loading}>
-              {loading ? (
-                <Loader2 size={18} className="animate-spin" />
-              ) : (
-                "Log in"
-              )}
+              {loading ? <Loader2 size={16} style={{ animation: "spin 1s linear infinite" }} /> : "Sign In"}
             </button>
           </form>
         ) : (
-          /* --- PHASE 2: MFA CODE --- */
-          <form onSubmit={handleMfaVerify} style={styles.form}>
+          <form onSubmit={handleMfaVerify} style={styles.form} noValidate>
             <div style={styles.inputGroup}>
-              <label style={styles.label}>6-DIGIT AUTHENTICATOR CODE</label>
+              <label htmlFor="mfa-code" style={styles.label}>6-Digit Authenticator Code</label>
               <div style={styles.inputWrapper}>
-                <Smartphone size={18} style={styles.inputIcon} />
+                <Smartphone size={16} style={styles.inputIcon} aria-hidden="true" />
                 <input
+                  id="mfa-code"
                   type="text"
-                  maxLength="6"
-                  placeholder="000 000"
-                  style={{
-                    ...styles.input,
-                    textAlign: "center",
-                    letterSpacing: "8px",
-                    fontSize: "20px",
-                  }}
+                  inputMode="numeric"
+                  maxLength={6}
+                  placeholder="000000"
+                  style={styles.mfaInput}
                   value={mfaCode}
-                  onChange={(e) =>
-                    setMfaCode(e.target.value.replace(/\D/g, ""))
-                  }
+                  onChange={(e) => setMfaCode(e.target.value.replace(/\D/g, "").slice(0, 6))}
                   autoFocus
+                  autoComplete="one-time-code"
                   required
                 />
               </div>
-              <p style={styles.mfaHint}>
-                Open Google Authenticator on your mobile device.
-              </p>
+              <p style={styles.hint}>Open Google Authenticator on your mobile device.</p>
             </div>
 
             <button
               type="submit"
-              style={{ ...styles.loginBtn, backgroundColor: "#10b981" }}
-              disabled={loading}
+              style={{ ...styles.loginBtn, backgroundColor: "#059669" }}
+              disabled={loading || mfaCode.length !== 6}
             >
-              {loading ? (
-                <Loader2 size={18} className="animate-spin" />
-              ) : (
-                "VERIFY & GRANT ACCESS"
-              )}
+              {loading ? <Loader2 size={16} style={{ animation: "spin 1s linear infinite" }} /> : "Verify & Grant Access"}
             </button>
 
             <button
               type="button"
-              onClick={() => setIsMfaStep(false)}
+              onClick={() => { setIsMfaStep(false); setError(null); setMfaCode(""); }}
               style={styles.backLink}
             >
-              <ArrowLeft size={12} /> BACK TO PASSWORD
+              <ArrowLeft size={12} style={{ marginRight: 4 }} />
+              Back to password
             </button>
           </form>
         )}
 
-        <div style={styles.footer}>AUTHORIZED PERSONNEL ONLY</div>
+        <div style={styles.footer}>
+          <div style={styles.footerDivider} />
+          <span>Authorized Personnel Only</span>
+        </div>
       </div>
+
+      <style>{`
+        @keyframes spin { from { transform: rotate(0deg); } to { transform: rotate(360deg); } }
+        input::placeholder { color: #475569; }
+        input:focus { border-color: #3b82f6 !important; box-shadow: 0 0 0 3px rgba(59,130,246,0.15) !important; outline: none; }
+      `}</style>
     </div>
   );
 }
 
 const styles = {
   container: {
-    height: "100vh",
-    width: "100vw",
-    backgroundColor: "#0f172a",
+    minHeight: "100vh",
+    width: "100%",
+    backgroundColor: "#070d1a",
     display: "flex",
     alignItems: "center",
     justifyContent: "center",
-    fontFamily: "monospace",
+    fontFamily: "'Inter', system-ui, sans-serif",
+    padding: "20px",
+    boxSizing: "border-box",
+    position: "relative",
+    overflow: "hidden",
+  },
+  backdrop: {
+    position: "absolute",
+    inset: 0,
+    background: "radial-gradient(ellipse at 20% 50%, rgba(59,130,246,0.08) 0%, transparent 60%), radial-gradient(ellipse at 80% 20%, rgba(16,185,129,0.06) 0%, transparent 50%)",
+    pointerEvents: "none",
   },
   loginBox: {
     width: "100%",
-    maxWidth: "400px",
-    backgroundColor: "#1e293b",
+    maxWidth: "420px",
+    backgroundColor: "#0f1f36",
     padding: "40px",
-    borderRadius: "16px",
-    border: "1px solid #334155",
-    boxShadow: "0 25px 50px -12px rgba(0, 0, 0, 0.5)",
+    borderRadius: "20px",
+    border: "1px solid rgba(59,130,246,0.2)",
+    boxShadow: "0 32px 64px rgba(0,0,0,0.6), 0 0 0 1px rgba(255,255,255,0.03) inset",
+    position: "relative",
+    zIndex: 1,
   },
-  header: { textAlign: "center", marginBottom: "35px" },
+  header: {
+    textAlign: "center",
+    marginBottom: "32px",
+  },
   iconCircle: {
-    backgroundColor: "#0f172a",
-    width: "64px",
-    height: "64px",
+    background: "linear-gradient(135deg, #1e3a5f, #0f2340)",
+    width: "60px",
+    height: "60px",
     borderRadius: "16px",
     display: "flex",
     alignItems: "center",
     justifyContent: "center",
-    margin: "0 auto 20px",
-    border: "1px solid #334155",
+    margin: "0 auto 18px",
+    border: "1px solid rgba(59,130,246,0.3)",
+    boxShadow: "0 4px 20px rgba(59,130,246,0.2)",
+  },
+  iconCircleGreen: {
+    background: "linear-gradient(135deg, #0d3327, #071e17)",
+    width: "60px",
+    height: "60px",
+    borderRadius: "16px",
+    display: "flex",
+    alignItems: "center",
+    justifyContent: "center",
+    margin: "0 auto 18px",
+    border: "1px solid rgba(16,185,129,0.3)",
+    boxShadow: "0 4px 20px rgba(16,185,129,0.15)",
   },
   title: {
-    color: "#fff",
-    fontSize: "22px",
-    margin: "0 0 5px 0",
-    letterSpacing: "2px",
-    fontWeight: "bold",
+    color: "#f1f5f9",
+    fontSize: "20px",
+    fontWeight: "700",
+    margin: "0 0 6px",
+    letterSpacing: "-0.3px",
   },
   subtitle: {
     color: "#64748b",
-    fontSize: "10px",
-    fontWeight: "bold",
-    letterSpacing: "1px",
+    fontSize: "13px",
+    margin: 0,
+    lineHeight: "1.5",
   },
-  form: { display: "flex", flexDirection: "column", gap: "20px" },
-  inputGroup: { display: "flex", flexDirection: "column", gap: "8px" },
-  label: { color: "#94a3b8", fontSize: "11px", fontWeight: "bold" },
-  inputWrapper: { position: "relative" },
+  errorBox: {
+    backgroundColor: "rgba(239,68,68,0.08)",
+    border: "1px solid rgba(239,68,68,0.3)",
+    color: "#fca5a5",
+    padding: "12px 14px",
+    borderRadius: "10px",
+    fontSize: "13px",
+    display: "flex",
+    alignItems: "flex-start",
+    gap: "10px",
+    marginBottom: "20px",
+    lineHeight: "1.4",
+  },
+  form: {
+    display: "flex",
+    flexDirection: "column",
+    gap: "18px",
+  },
+  inputGroup: {
+    display: "flex",
+    flexDirection: "column",
+    gap: "6px",
+  },
+  label: {
+    color: "#94a3b8",
+    fontSize: "12px",
+    fontWeight: "600",
+    letterSpacing: "0.4px",
+    textTransform: "uppercase",
+  },
+  inputWrapper: {
+    position: "relative",
+  },
   inputIcon: {
     position: "absolute",
-    left: "15px",
+    left: "14px",
     top: "50%",
     transform: "translateY(-50%)",
     color: "#475569",
+    pointerEvents: "none",
   },
   input: {
     width: "100%",
-    backgroundColor: "#0f172a",
-    border: "1px solid #334155",
-    borderRadius: "8px",
-    padding: "12px 15px 12px 45px",
-    color: "#fff",
+    backgroundColor: "#0a1628",
+    border: "1px solid #1e3a5f",
+    borderRadius: "10px",
+    padding: "13px 14px 13px 42px",
+    color: "#f1f5f9",
     fontSize: "14px",
     boxSizing: "border-box",
     outline: "none",
-    transition: "border-color 0.2s",
+    transition: "border-color 0.2s, box-shadow 0.2s",
+    fontFamily: "inherit",
+  },
+  mfaInput: {
+    width: "100%",
+    backgroundColor: "#0a1628",
+    border: "1px solid #1e3a5f",
+    borderRadius: "10px",
+    padding: "14px 14px 14px 42px",
+    color: "#f1f5f9",
+    fontSize: "24px",
+    fontWeight: "700",
+    letterSpacing: "12px",
+    textAlign: "center",
+    boxSizing: "border-box",
+    outline: "none",
+    transition: "border-color 0.2s, box-shadow 0.2s",
+    fontFamily: "monospace",
+  },
+  hint: {
+    fontSize: "12px",
+    color: "#475569",
+    margin: "4px 0 0",
   },
   loginBtn: {
-    marginTop: "10px",
-    backgroundColor: "#3b82f6",
+    marginTop: "6px",
+    backgroundColor: "#2563eb",
     color: "#fff",
     border: "none",
-    borderRadius: "8px",
+    borderRadius: "10px",
     padding: "14px",
-    fontSize: "13px",
-    fontWeight: "bold",
+    fontSize: "14px",
+    fontWeight: "600",
     cursor: "pointer",
     display: "flex",
     alignItems: "center",
     justifyContent: "center",
-    gap: "10px",
-  },
-  errorBox: {
-    backgroundColor: "rgba(239, 68, 68, 0.1)",
-    border: "1px solid #ef4444",
-    color: "#ef4444",
-    padding: "12px",
-    borderRadius: "8px",
-    fontSize: "12px",
-    display: "flex",
-    alignItems: "center",
-    gap: "10px",
-    marginBottom: "20px",
-  },
-  mfaHint: {
-    fontSize: "10px",
-    color: "#475569",
-    textAlign: "center",
-    marginTop: "5px",
+    gap: "8px",
+    transition: "background-color 0.2s, opacity 0.2s",
+    letterSpacing: "0.2px",
+    fontFamily: "inherit",
   },
   backLink: {
     backgroundColor: "transparent",
     border: "none",
     color: "#64748b",
     cursor: "pointer",
-    fontSize: "11px",
+    fontSize: "12px",
     display: "flex",
     alignItems: "center",
     justifyContent: "center",
-    gap: "5px",
-    marginTop: "10px",
+    padding: "4px",
+    fontFamily: "inherit",
+    transition: "color 0.2s",
   },
   footer: {
     textAlign: "center",
-    marginTop: "30px",
-    color: "#475569",
-    fontSize: "9px",
-    letterSpacing: "1px",
+    marginTop: "28px",
+    color: "#334155",
+    fontSize: "11px",
+    letterSpacing: "1.5px",
+    textTransform: "uppercase",
+    display: "flex",
+    flexDirection: "column",
+    gap: "12px",
+    alignItems: "center",
+  },
+  footerDivider: {
+    width: "40px",
+    height: "1px",
+    backgroundColor: "#1e293b",
   },
 };
