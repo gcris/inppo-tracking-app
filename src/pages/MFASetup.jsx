@@ -2,7 +2,12 @@ import React, { useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { supabase } from "../api/supabase";
 import { QRCodeSVG } from "qrcode.react";
-import { ShieldCheck, Loader as Loader2, CircleAlert as AlertCircle, CircleCheck as CheckCircle2 } from "lucide-react";
+import {
+  ShieldCheck,
+  Loader as Loader2,
+  CircleAlert as AlertCircle,
+  CircleCheck as CheckCircle2,
+} from "lucide-react";
 
 export default function MFASetup() {
   const navigate = useNavigate();
@@ -61,7 +66,9 @@ export default function MFASetup() {
             <ShieldCheck size={28} color="#3b82f6" />
           </div>
           <h2 style={styles.title}>Two-Factor Authentication</h2>
-          <p style={styles.subtitle}>Secure your account with Google Authenticator</p>
+          <p style={styles.subtitle}>
+            Secure your account with Google Authenticator
+          </p>
         </div>
 
         {error && (
@@ -74,8 +81,8 @@ export default function MFASetup() {
         {!qrCodeData ? (
           <div style={styles.section}>
             <p style={styles.description}>
-              You need to set up two-factor authentication before accessing the system.
-              Click below to begin enrollment.
+              You need to set up two-factor authentication before accessing the
+              system. Click below to begin enrollment.
             </p>
             <button onClick={startEnrollment} style={styles.primaryBtn}>
               Begin MFA Enrollment
@@ -86,24 +93,38 @@ export default function MFASetup() {
             <div style={styles.steps}>
               <div style={styles.step}>
                 <span style={styles.stepNum}>1</span>
-                <span style={styles.stepText}>Open Google Authenticator on your phone</span>
+                <span style={styles.stepText}>
+                  Open Google Authenticator on your phone
+                </span>
               </div>
               <div style={styles.step}>
                 <span style={styles.stepNum}>2</span>
-                <span style={styles.stepText}>Tap "+" and scan the QR code below</span>
+                <span style={styles.stepText}>
+                  Tap "+" and scan the QR code below
+                </span>
               </div>
               <div style={styles.step}>
                 <span style={styles.stepNum}>3</span>
-                <span style={styles.stepText}>Enter the 6-digit code to activate</span>
+                <span style={styles.stepText}>
+                  Enter the 6-digit code to activate
+                </span>
               </div>
             </div>
 
             <div style={styles.qrWrapper}>
-              <QRCodeSVG value={qrCodeData} size={160} bgColor="#fff" fgColor="#0f172a" />
+              <QRCodeSVG
+                value={JSON.stringify(qrCodeData)}
+                size={256}
+                level={"L"}
+                bgColor="#fff"
+                fgColor="#0f172a"
+              />
             </div>
 
             <div style={styles.inputGroup}>
-              <label htmlFor="verify-code" style={styles.label}>Verification Code</label>
+              <label htmlFor="verify-code" style={styles.label}>
+                Verification Code
+              </label>
               <input
                 id="verify-code"
                 type="text"
@@ -112,18 +133,27 @@ export default function MFASetup() {
                 placeholder="000000"
                 style={styles.input}
                 value={verifyCode}
-                onChange={(e) => setVerifyCode(e.target.value.replace(/\D/g, "").slice(0, 6))}
+                onChange={(e) =>
+                  setVerifyCode(e.target.value.replace(/\D/g, "").slice(0, 6))
+                }
                 autoComplete="one-time-code"
               />
             </div>
 
             <button
               onClick={handleVerify}
-              style={{ ...styles.primaryBtn, backgroundColor: "#059669", opacity: loading ? 0.7 : 1 }}
+              style={{
+                ...styles.primaryBtn,
+                backgroundColor: "#059669",
+                opacity: loading ? 0.7 : 1,
+              }}
               disabled={loading || verifyCode.length !== 6}
             >
               {loading ? (
-                <Loader2 size={14} style={{ animation: "spin 1s linear infinite" }} />
+                <Loader2
+                  size={14}
+                  style={{ animation: "spin 1s linear infinite" }}
+                />
               ) : (
                 <CheckCircle2 size={14} />
               )}
@@ -157,7 +187,8 @@ const styles = {
   backdrop: {
     position: "absolute",
     inset: 0,
-    background: "radial-gradient(ellipse at 50% 30%, rgba(59,130,246,0.08) 0%, transparent 60%)",
+    background:
+      "radial-gradient(ellipse at 50% 30%, rgba(59,130,246,0.08) 0%, transparent 60%)",
     pointerEvents: "none",
   },
   card: {

@@ -7,7 +7,18 @@ import {
   Polyline,
   useMap,
 } from "react-leaflet";
-import { Battery, Zap, Activity, Play, Loader as Loader2, ArrowLeft, Lock, Clock as Unlock, Calendar, Clock } from "lucide-react";
+import {
+  Wifi,
+  Zap,
+  Activity,
+  Play,
+  Loader as Loader2,
+  ArrowLeft,
+  Lock,
+  Clock as Unlock,
+  Calendar,
+  Clock,
+} from "lucide-react";
 
 import { supabase } from "../api/supabase";
 import { getTacticalIcon } from "../components/TacticalIcons";
@@ -25,68 +36,112 @@ export default function Tracker() {
   const navigate = useNavigate();
 
   const [plateNumber, setPlateNumber] = useState("Loading...");
+  const [unit_id, setUnitId] = useState(0);
   const [unitName, setUnitName] = useState("");
   const [history, setHistory] = useState([]);
-  const [current, setCurrent] = useState({ lat: 18.196, lng: 120.592, bat: 0, speed: 0, time: "" });
+  const [current, setCurrent] = useState({
+    lat: 18.196,
+    lng: 120.592,
+    signal: 0,
+    speed: 0,
+    time: "",
+  });
   const [isActive, setIsActive] = useState(false);
   const [isLive, setIsLive] = useState(true);
-  const [selectedDate, setSelectedDate] = useState(new Date().toISOString().split("T")[0]);
+  const [selectedDate, setSelectedDate] = useState(
+    new Date().toISOString().split("T")[0],
+  );
   const [availableSessions, setAvailableSessions] = useState([]);
   const [selectedSessionIndex, setSelectedSessionIndex] = useState("");
   const [loadingSessions, setLoadingSessions] = useState(false);
+  const [vehicleSchedule, setVehicleSchedule] = useState([]);
+  const [loadingVehicleSchedule, setLoadingVehicleSchedule] = useState(false);
   const [isPlaying, setIsPlaying] = useState(false);
   const [playProgress, setPlayProgress] = useState(0);
   const playTimerRef = useRef(null);
 
-  useEffect(() => {
-    const fetchVehicleInfo = async () => {
+  const fetchVehicleInfo = useCallback(
+    async (id) => {
       const { data } = await supabase
         .from("vehicles")
-        .select("plate_number, unit_name")
-        .eq("id", vehicleId)
+        .select(
+          `plate_number, 
+          unit_id, 
+          unit!inner (unit_name)`,
+        )
+        .eq("id", id)
         .maybeSingle();
+
+      console.log("Fetched vehicle info:", data);
 
       if (data) {
         setPlateNumber(data.plate_number);
-        setUnitName(data.unit_name || "");
+        setUnitId(data.unit_id || 0);
+        setUnitName(data.unit.unit_name || "");
       } else {
-        setPlateNumber(vehicleId);
+        setPlateNumber(id);
       }
-    };
-    fetchVehicleInfo();
-  }, [vehicleId]);
+    },
+    [vehicleId],
+  );
 
-  const discoverSessions = useCallback(async (date) => {
-    setLoadingSessions(true);
-    const { data } = await supabase
-      .from("vehicle_logs")
-      .select("captured_at")
-      .eq("vehicle_id", vehicleId)
-      .gte("captured_at", `${date}T00:00:00Z`)
-      .lte("captured_at", `${date}T23:59:59Z`)
-      .order("captured_at", { ascending: true });
+  const loadVehicleSchedule = useCallback(
+    async (date) => {
+      setLoadingVehicleSchedule(true);
+      console.log(`Loading schedule for unit_id=${unit_id} on date=${date}...`);
 
-    if (data && data.length > 1) {
-      const found = [];
-      let sStart = data[0].captured_at;
-      for (let i = 1; i < data.length; i++) {
-        const diff = new Date(data[i].captured_at) - new Date(data[i - 1].captured_at);
-        if (diff > 20 * 60 * 1000) {
-          found.push({ start: sStart, end: data[i - 1].captured_at });
-          sStart = data[i].captured_at;
+      const { data: scheduleData } = await supabase
+        .from("schedule")
+        .select("*")
+        .eq("unit_id", unit_id)
+        .eq("date", date)
+        .order("time_from", { ascending: true });
+
+      console.log("Fetched vehicle schedule:", scheduleData);
+
+      setVehicleSchedule(scheduleData || []);
+      setLoadingVehicleSchedule(false);
+    },
+    [unit_id],
+  );
+
+  const discoverSessions = useCallback(
+    async (date) => {
+      setLoadingSessions(true);
+      const { data } = await supabase
+        .from("vehicle_logs")
+        .select("captured_at")
+        .eq("vehicle_id", vehicleId)
+        .gte("captured_at", `${date}T00:00:00Z`)
+        .lte("captured_at", `${date}T23:59:59Z`)
+        .order("captured_at", { ascending: true });
+
+      if (data && data.length > 1) {
+        const found = [];
+        let sStart = data[0].captured_at;
+        for (let i = 1; i < data.length; i++) {
+          const diff =
+            new Date(data[i].captured_at) - new Date(data[i - 1].captured_at);
+          if (diff > 20 * 60 * 1000) {
+            found.push({ start: sStart, end: data[i - 1].captured_at });
+            sStart = data[i].captured_at;
+          }
         }
+        found.push({ start: sStart, end: data[data.length - 1].captured_at });
+        setAvailableSessions(found);
+      } else {
+        setAvailableSessions([]);
       }
-      found.push({ start: sStart, end: data[data.length - 1].captured_at });
-      setAvailableSessions(found);
-    } else {
-      setAvailableSessions([]);
-    }
-    setLoadingSessions(false);
-  }, [vehicleId]);
+      setLoadingSessions(false);
+    },
+    [vehicleId],
+  );
 
   useEffect(() => {
+    fetchVehicleInfo(vehicleId);
     discoverSessions(selectedDate);
-  }, [selectedDate, discoverSessions]);
+    loadVehicleSchedule(selectedDate);
+  }, [vehicleId, selectedDate, discoverSessions, loadVehicleSchedule]);
 
   // Cleanup playback timer on unmount
   useEffect(() => {
@@ -98,7 +153,7 @@ export default function Tracker() {
   const playSession = async () => {
     if (selectedSessionIndex === "" || isPlaying) return;
     setIsPlaying(true);
-    setIsLive(false);
+    if (!isLive) setIsLive(true);
     setPlayProgress(0);
 
     const session = availableSessions[selectedSessionIndex];
@@ -123,7 +178,13 @@ export default function Tracker() {
           return;
         }
         const p = data[i];
-        setCurrent({ lat: p.latitude, lng: p.longitude, bat: p.battery_level, speed: p.speed, time: p.captured_at });
+        setCurrent({
+          lat: p.latitude,
+          lng: p.longitude,
+          signal: p.network_signal,
+          speed: p.speed,
+          time: p.captured_at,
+        });
         setHistory((prev) => [...prev, [p.latitude, p.longitude]]);
         setPlayProgress(Math.round(((i + 1) / total) * 100));
         i++;
@@ -138,14 +199,27 @@ export default function Tracker() {
       .channel(`live-${vehicleId}`)
       .on(
         "postgres_changes",
-        { event: "INSERT", schema: "public", table: "vehicle_logs", filter: `vehicle_id=eq.${vehicleId}` },
+        {
+          event: "INSERT",
+          schema: "public",
+          table: "vehicle_logs",
+          filter: `vehicle_id=eq.${vehicleId}`,
+        },
         (payload) => {
           if (!isLive) return;
           const n = payload.new;
           if (n.latitude === 0 || n.longitude === 0) return;
           setIsActive(true);
-          setCurrent({ lat: n.latitude, lng: n.longitude, bat: n.battery_level, speed: n.speed, time: n.captured_at });
-          setHistory((prev) => [...prev, [n.latitude, n.longitude]].slice(-200));
+          setCurrent({
+            lat: n.latitude,
+            lng: n.longitude,
+            signal: n.network_signal,
+            speed: n.speed,
+            time: n.captured_at,
+          });
+          setHistory((prev) =>
+            [...prev, [n.latitude, n.longitude]].slice(-200),
+          );
         },
       )
       .subscribe();
@@ -154,7 +228,16 @@ export default function Tracker() {
 
   const formatTime = (iso) => {
     if (!iso) return "--:--";
-    return new Date(iso).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", second: "2-digit" });
+    let parsedDate = new Date(iso);
+    if (isNaN(parsedDate.getTime())) {
+      parsedDate = new Date(`${selectedDate}T${iso}`);
+    }
+
+    console.log("Formatting time:", iso);
+    return parsedDate.toLocaleTimeString([], {
+      hour: "2-digit",
+      minute: "2-digit",
+    });
   };
 
   return (
@@ -169,29 +252,49 @@ export default function Tracker() {
 
       {/* TOP BAR */}
       <div style={styles.topBar}>
-        <button onClick={() => navigate("/")} style={styles.backBtn} title="Back to Fleet">
+        <button
+          onClick={() => navigate("/")}
+          style={styles.backBtn}
+          title="Back to Fleet"
+        >
           <ArrowLeft size={16} />
         </button>
         <div style={styles.titleCard}>
           <div style={styles.titleMain}>
             <span style={styles.plateName}>{plateNumber}</span>
-            <div style={{
-              ...styles.livePill,
-              backgroundColor: isActive ? "rgba(16,185,129,0.15)" : "rgba(100,116,139,0.1)",
-              borderColor: isActive ? "rgba(16,185,129,0.3)" : "rgba(100,116,139,0.2)",
-            }}>
-              <span style={{
-                ...styles.liveDot,
-                backgroundColor: isActive ? "#10b981" : "#475569",
-                boxShadow: isActive ? "0 0 8px #10b981" : "none",
-                animation: isActive ? "pulse 2s ease-in-out infinite" : "none",
-              }} />
-              <span style={{ color: isActive ? "#10b981" : "#64748b", fontSize: "11px", fontWeight: "700" }}>
+            <div
+              style={{
+                ...styles.livePill,
+                backgroundColor: isActive
+                  ? "rgba(16,185,129,0.15)"
+                  : "rgba(100,116,139,0.1)",
+                borderColor: isActive
+                  ? "rgba(16,185,129,0.3)"
+                  : "rgba(100,116,139,0.2)",
+              }}
+            >
+              <span
+                style={{
+                  ...styles.liveDot,
+                  backgroundColor: isActive ? "#10b981" : "#475569",
+                  boxShadow: isActive ? "0 0 8px #10b981" : "none",
+                  animation: isActive
+                    ? "pulse 2s ease-in-out infinite"
+                    : "none",
+                }}
+              />
+              <span
+                style={{
+                  color: isActive ? "#10b981" : "#64748b",
+                  fontSize: "11px",
+                  fontWeight: "700",
+                }}
+              >
                 {isActive ? "LIVE" : "OFFLINE"}
               </span>
             </div>
           </div>
-          {unitName && <span style={styles.unitNameTag}>{unitName} &bull; Laoag Sector</span>}
+          {unit_id && <span style={styles.unitNameTag}>{unitName}</span>}
         </div>
       </div>
 
@@ -204,29 +307,36 @@ export default function Tracker() {
 
         <div style={styles.telemetryGrid}>
           <div style={styles.telemetryItem}>
-            <span style={styles.telemetryLabel}>Status</span>
-            <span style={{ ...styles.telemetryValue, color: isActive ? "#10b981" : "#ef4444", fontSize: "13px" }}>
+            <span
+              style={{
+                ...styles.telemetryValue,
+                color: isActive ? "#10b981" : "#ef4444",
+                fontSize: "13px",
+              }}
+            >
               {isActive ? "Signal OK" : "No Signal"}
             </span>
           </div>
           <div style={styles.telemetryItem}>
-            <Battery size={14} color={current.bat > 20 ? "#10b981" : "#ef4444"} />
-            <span style={{ ...styles.telemetryValue, color: current.bat > 20 ? "#e2e8f0" : "#ef4444" }}>
-              {current.bat}%
+            <Wifi
+              size={14}
+              color={current.signal > 20 ? "#10b981" : "#ef4444"}
+            />
+            <span
+              style={{
+                ...styles.telemetryValue,
+                color: current.signal > 20 ? "#e2e8f0" : "#ef4444",
+              }}
+            >
+              {current.signal}%
             </span>
           </div>
           <div style={styles.telemetryItem}>
             <Zap size={14} color="#3b82f6" />
-            <span style={styles.telemetryValue}>{Number(current.speed).toFixed(1)} km/h</span>
+            <span style={styles.telemetryValue}>
+              {Number(current.speed).toFixed(1)} km/h
+            </span>
           </div>
-          {current.time && (
-            <div style={styles.telemetryItem}>
-              <Clock size={13} color="#475569" />
-              <span style={{ ...styles.telemetryValue, fontSize: "12px", color: "#64748b" }}>
-                {formatTime(current.time)}
-              </span>
-            </div>
-          )}
         </div>
 
         <div style={styles.divider} />
@@ -235,9 +345,13 @@ export default function Tracker() {
           onClick={() => setIsLive(!isLive)}
           style={{
             ...styles.toggleBtn,
-            borderColor: isLive ? "rgba(59,130,246,0.4)" : "rgba(100,116,139,0.3)",
+            borderColor: isLive
+              ? "rgba(59,130,246,0.4)"
+              : "rgba(100,116,139,0.3)",
             color: isLive ? "#60a5fa" : "#94a3b8",
-            backgroundColor: isLive ? "rgba(37,99,235,0.1)" : "rgba(100,116,139,0.08)",
+            backgroundColor: isLive
+              ? "rgba(37,99,235,0.1)"
+              : "rgba(100,116,139,0.08)",
           }}
         >
           {isLive ? <Lock size={13} /> : <Unlock size={13} />}
@@ -247,6 +361,31 @@ export default function Tracker() {
 
       {/* RIGHT PANEL: ARCHIVE */}
       <div style={styles.hudRight}>
+        <div style={styles.hudSchedule}>
+          <div style={styles.panelTitle}>
+            <Clock size={13} color="#3b82f6" />
+            <span>Scheduled Patrolling</span>
+          </div>
+          {loadingVehicleSchedule ? (
+            <div style={styles.scheduleEmpty}>Loading schedule...</div>
+          ) : vehicleSchedule.length === 0 ? (
+            <div style={styles.scheduleEmpty}>
+              No schedule found for selected date.
+            </div>
+          ) : (
+            <div style={styles.scheduleList}>
+              {vehicleSchedule.map((item) => (
+                <div key={item.id} style={styles.scheduleItem}>
+                  <div style={styles.scheduleTime}>
+                    {formatTime(item.time_from)} - {formatTime(item.time_to)}
+                  </div>
+                  <div style={styles.scheduleSector}>{item.sector}</div>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+
         <div style={styles.panelTitle}>
           <Calendar size={13} color="#3b82f6" />
           <span>Log Archive</span>
@@ -257,53 +396,68 @@ export default function Tracker() {
           <input
             type="date"
             value={selectedDate}
-            onChange={(e) => { setSelectedDate(e.target.value); setSelectedSessionIndex(""); }}
+            onChange={(e) => {
+              setSelectedDate(e.target.value);
+              setSelectedSessionIndex("");
+            }}
             style={styles.input}
           />
-        </div>
 
-        <div style={styles.archiveField}>
-          <label style={styles.fieldLabel}>Trip Session</label>
-          <select
-            value={selectedSessionIndex}
-            onChange={(e) => setSelectedSessionIndex(e.target.value)}
-            style={styles.input}
-            disabled={isPlaying}
-          >
-            <option value="">
-              {loadingSessions ? "Syncing..." : availableSessions.length === 0 ? "No trips found" : "Select a trip"}
-            </option>
-            {availableSessions.map((s, idx) => (
-              <option key={idx} value={idx}>
-                Trip {idx + 1} &mdash;&nbsp;
-                {new Date(s.start).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}
-                {" - "}
-                {new Date(s.end).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}
+          <div style={styles.archiveField}>
+            <label style={styles.fieldLabel}>Patrol Session</label>
+            <select
+              value={selectedSessionIndex}
+              onChange={(e) => setSelectedSessionIndex(e.target.value)}
+              style={styles.input}
+              disabled={isPlaying}
+            >
+              <option value="">
+                {loadingSessions
+                  ? "Syncing..."
+                  : availableSessions.length === 0
+                    ? "No trips found"
+                    : "Select a trip"}
               </option>
-            ))}
-          </select>
-        </div>
-
-        {isPlaying && (
-          <div style={styles.progressBar}>
-            <div style={{ ...styles.progressFill, width: `${playProgress}%` }} />
+              {availableSessions.map((s, idx) => (
+                <option key={idx} value={idx}>
+                  Patrol {idx + 1} &mdash;&nbsp;
+                  {formatTime(s.start)} - {formatTime(s.end)}
+                </option>
+              ))}
+            </select>
           </div>
-        )}
 
-        <button
-          onClick={playSession}
-          style={{
-            ...styles.replayBtn,
-            opacity: selectedSessionIndex === "" || isPlaying ? 0.5 : 1,
-            cursor: selectedSessionIndex === "" || isPlaying ? "not-allowed" : "pointer",
-          }}
-          disabled={selectedSessionIndex === "" || isPlaying}
-        >
-          {isPlaying
-            ? <Loader2 size={13} style={{ animation: "spin 1s linear infinite" }} />
-            : <Play size={13} />}
-          {isPlaying ? `Replaying... ${playProgress}%` : "Replay Path"}
-        </button>
+          {isPlaying && (
+            <div style={styles.progressBar}>
+              <div
+                style={{ ...styles.progressFill, width: `${playProgress}%` }}
+              />
+            </div>
+          )}
+
+          <button
+            onClick={playSession}
+            style={{
+              ...styles.replayBtn,
+              opacity: selectedSessionIndex === "" || isPlaying ? 0.5 : 1,
+              cursor:
+                selectedSessionIndex === "" || isPlaying
+                  ? "not-allowed"
+                  : "pointer",
+            }}
+            disabled={selectedSessionIndex === "" || isPlaying}
+          >
+            {isPlaying ? (
+              <Loader2
+                size={13}
+                style={{ animation: "spin 1s linear infinite" }}
+              />
+            ) : (
+              <Play size={13} />
+            )}
+            {isPlaying ? `Replaying... ${playProgress}%` : "Replay Path"}
+          </button>
+        </div>
       </div>
 
       <MapContainer
@@ -313,8 +467,17 @@ export default function Tracker() {
         style={styles.map}
       >
         <TileLayer url="https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png" />
-        <Polyline positions={history} color="#3b82f6" weight={3} opacity={0.8} lineJoin="round" />
-        <Marker position={[current.lat, current.lng]} icon={getTacticalIcon(isActive)} />
+        <Polyline
+          positions={history}
+          color="#3b82f6"
+          weight={3}
+          opacity={0.8}
+          lineJoin="round"
+        />
+        <Marker
+          position={[current.lat, current.lng]}
+          icon={getTacticalIcon(isActive)}
+        />
         <AutoCenter pos={[current.lat, current.lng]} isLive={isLive} />
       </MapContainer>
     </div>
@@ -488,6 +651,43 @@ const styles = {
     display: "flex",
     flexDirection: "column",
     gap: "4px",
+  },
+  hudSchedule: {
+    backgroundColor: "rgba(15,23,42,0.98)",
+    padding: "16px",
+    borderRadius: "14px",
+    border: "1px solid rgba(59,130,246,0.15)",
+    display: "flex",
+    flexDirection: "column",
+    gap: "10px",
+  },
+  scheduleList: {
+    display: "flex",
+    flexDirection: "column",
+    gap: "10px",
+  },
+  scheduleItem: {
+    display: "flex",
+    flexDirection: "column",
+    gap: "4px",
+    padding: "10px",
+    backgroundColor: "rgba(10,25,40,0.9)",
+    borderRadius: "10px",
+    border: "1px solid rgba(30,41,59,0.75)",
+  },
+  scheduleTime: {
+    fontSize: "13px",
+    fontWeight: 700,
+    color: "#e2e8f0",
+  },
+  scheduleSector: {
+    fontSize: "12px",
+    color: "#94a3b8",
+  },
+  scheduleEmpty: {
+    fontSize: "12px",
+    color: "#94a3b8",
+    lineHeight: 1.6,
   },
   fieldLabel: {
     fontSize: "11px",

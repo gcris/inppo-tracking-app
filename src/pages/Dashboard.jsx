@@ -1,6 +1,20 @@
 import React, { useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
-import { Shield, Battery, Activity, Clock, Search, Loader as Loader2, LogOut, Radio, TriangleAlert as AlertTriangle, MapPin, Gauge, RefreshCw } from "lucide-react";
+import {
+  Shield,
+  Wifi,
+  Activity,
+  Clock,
+  Search,
+  Loader as Loader2,
+  LogOut,
+  Radio,
+  TriangleAlert as AlertTriangle,
+  MapPin,
+  Gauge,
+  RefreshCw,
+  Car,
+} from "lucide-react";
 import { supabase } from "../api/supabase";
 
 export default function Dashboard() {
@@ -17,28 +31,48 @@ export default function Dashboard() {
 
     const { data, error } = await supabase
       .from("vehicles")
-      .select(`
+      .select(
+        `
         id,
         plate_number,
-        unit_name,
-        assigned_officer,
-        vehicle_logs ( battery_level, captured_at, speed, latitude, longitude )
-      `)
+        personnel:personnel_id (
+          rank,
+          fullname
+        ),
+        vehicle_logs ( network_signal, captured_at, speed, latitude, longitude )
+      `,
+      )
       .order("captured_at", { foreignTable: "vehicle_logs", ascending: false })
       .limit(1, { foreignTable: "vehicle_logs" });
 
     if (!error && data) {
       const formatted = data.map((v) => {
         const log = v.vehicle_logs?.[0];
-        const isActive = log && new Date() - new Date(log.captured_at) < 600000;
+        const logDate = new Date(log.captured_at);
+        const now = new Date();
+
+        // Get the absolute difference in milliseconds
+        const diff = Math.abs(now - logDate);
+
+        // 1. If the difference is less than 10 minutes (600,000ms), it's Active.
+        // 2. If the log is "from the future" (diff is negative/logDate > now),
+        //    we usually treat it as Active because it means it was JUST sent.
+        const isActive = log && diff < 600000;
+
+        console.log("Log date: " + logDate);
+        console.log("Date today: " + now);
+
         return {
           id: v.id,
           plate: v.plate_number,
-          unitName: v.unit_name || "",
-          officer: v.assigned_officer || "",
-          battery: log ? log.battery_level : 0,
+          personnel: v.personnel
+            ? `${v.personnel.rank} ${v.personnel.fullname}`
+            : "",
+          signal: log ? log.network_signal : 0,
           speed: log ? log.speed : 0,
-          lastSeen: log ? new Date(log.captured_at).toLocaleString() : "No Signal",
+          lastSeen: log
+            ? new Date(log.captured_at).toLocaleString()
+            : "No Signal",
           status: isActive ? "Active" : "Offline",
         };
       });
@@ -61,15 +95,17 @@ export default function Dashboard() {
     return () => clearInterval(interval);
   }, []);
 
-  const filteredFleet = fleet.filter((v) =>
-    v.plate.toLowerCase().includes(searchTerm.toLowerCase()) ||
-    v.unitName.toLowerCase().includes(searchTerm.toLowerCase()) ||
-    v.officer.toLowerCase().includes(searchTerm.toLowerCase())
+  const filteredFleet = fleet.filter(
+    (v) =>
+      v.plate.toLowerCase().includes(searchTerm.toLowerCase()) ||
+      v.personnel.toLowerCase().includes(searchTerm.toLowerCase()),
   );
 
   const activeCount = fleet.filter((v) => v.status === "Active").length;
   const offlineCount = fleet.length - activeCount;
-  const lowBatteryCount = fleet.filter((v) => v.battery > 0 && v.battery < 20).length;
+  const lowSignalCount = fleet.filter(
+    (v) => v.signal > 0 && v.signal < 20,
+  ).length;
 
   return (
     <div style={styles.page}>
@@ -85,12 +121,18 @@ export default function Dashboard() {
               <h1 style={styles.title}>INPPO Tracking</h1>
               <div style={styles.badgeRow}>
                 <span style={styles.regionBadge}>Laoag City Sector</span>
-                <span style={activeCount > 0 ? styles.activeBadge : styles.offlineBadge}>
-                  <span style={{
-                    ...styles.dot,
-                    backgroundColor: activeCount > 0 ? "#10b981" : "#64748b",
-                    boxShadow: activeCount > 0 ? "0 0 6px #10b981" : "none",
-                  }} />
+                <span
+                  style={
+                    activeCount > 0 ? styles.activeBadge : styles.offlineBadge
+                  }
+                >
+                  <span
+                    style={{
+                      ...styles.dot,
+                      backgroundColor: activeCount > 0 ? "#10b981" : "#64748b",
+                      boxShadow: activeCount > 0 ? "0 0 6px #10b981" : "none",
+                    }}
+                  />
                   {activeCount > 0 ? "System Active" : "Standby"}
                 </span>
               </div>
@@ -100,7 +142,11 @@ export default function Dashboard() {
           <div style={styles.headerRight}>
             {lastRefresh && (
               <span style={styles.lastRefreshText}>
-                Updated {lastRefresh.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}
+                Updated{" "}
+                {lastRefresh.toLocaleTimeString([], {
+                  hour: "2-digit",
+                  minute: "2-digit",
+                })}
               </span>
             )}
             <button
@@ -111,8 +157,18 @@ export default function Dashboard() {
             >
               <RefreshCw
                 size={14}
-                style={{ animation: refreshing ? "spin 1s linear infinite" : "none" }}
+                style={{
+                  animation: refreshing ? "spin 1s linear infinite" : "none",
+                }}
               />
+            </button>
+            <button
+              onClick={() => navigate("/track-all")}
+              style={styles.navMapBtn}
+              title="Track all vehicles on the map"
+            >
+              <MapPin size={14} />
+              Fleet Map
             </button>
             <button onClick={handleLogout} style={styles.logoutBtn}>
               <LogOut size={14} />
@@ -120,6 +176,41 @@ export default function Dashboard() {
             </button>
           </div>
         </header>
+
+        <div style={styles.managementNav}>
+          <button
+            onClick={() => navigate("/manage/units")}
+            style={styles.mgmtBtn}
+            title="Manage units"
+          >
+            <Radio size={14} />
+            Units
+          </button>
+          <button
+            onClick={() => navigate("/manage/personnel")}
+            style={styles.mgmtBtn}
+            title="Manage personnel"
+          >
+            <Shield size={14} />
+            Personnel
+          </button>
+          <button
+            onClick={() => navigate("/manage/schedule")}
+            style={styles.mgmtBtn}
+            title="Manage schedules"
+          >
+            <Clock size={14} />
+            Schedule
+          </button>
+          <button
+            onClick={() => navigate("/manage/vehicles")}
+            style={styles.mgmtBtn}
+            title="Manage vehicles"
+          >
+            <Car size={14} />
+            Vehicles
+          </button>
+        </div>
 
         {!loading && (
           <div style={styles.statGrid}>
@@ -129,35 +220,63 @@ export default function Dashboard() {
               </div>
               <div>
                 <p style={styles.statLabel}>Active Units</p>
-                <p style={{ ...styles.statValue, color: "#3b82f6" }}>{activeCount}</p>
+                <p style={{ ...styles.statValue, color: "#3b82f6" }}>
+                  {activeCount}
+                </p>
               </div>
             </div>
             <div style={styles.statCard}>
-              <div style={{ ...styles.statIcon, background: "rgba(100,116,139,0.15)" }}>
+              <div
+                style={{
+                  ...styles.statIcon,
+                  background: "rgba(100,116,139,0.15)",
+                }}
+              >
                 <MapPin size={18} color="#64748b" />
               </div>
               <div>
                 <p style={styles.statLabel}>Offline Units</p>
-                <p style={{ ...styles.statValue, color: "#64748b" }}>{offlineCount}</p>
+                <p style={{ ...styles.statValue, color: "#64748b" }}>
+                  {offlineCount}
+                </p>
               </div>
             </div>
             <div style={styles.statCard}>
-              <div style={{ ...styles.statIcon, background: "rgba(16,185,129,0.12)" }}>
+              <div
+                style={{
+                  ...styles.statIcon,
+                  background: "rgba(16,185,129,0.12)",
+                }}
+              >
                 <Activity size={18} color="#10b981" />
               </div>
               <div>
                 <p style={styles.statLabel}>Total Fleet</p>
-                <p style={{ ...styles.statValue, color: "#10b981" }}>{fleet.length}</p>
+                <p style={{ ...styles.statValue, color: "#10b981" }}>
+                  {fleet.length}
+                </p>
               </div>
             </div>
-            {lowBatteryCount > 0 && (
-              <div style={{ ...styles.statCard, borderColor: "rgba(245,158,11,0.3)" }}>
-                <div style={{ ...styles.statIcon, background: "rgba(245,158,11,0.12)" }}>
+            {lowSignalCount > 0 && (
+              <div
+                style={{
+                  ...styles.statCard,
+                  borderColor: "rgba(245,158,11,0.3)",
+                }}
+              >
+                <div
+                  style={{
+                    ...styles.statIcon,
+                    background: "rgba(245,158,11,0.12)",
+                  }}
+                >
                   <AlertTriangle size={18} color="#f59e0b" />
                 </div>
                 <div>
-                  <p style={styles.statLabel}>Low Battery</p>
-                  <p style={{ ...styles.statValue, color: "#f59e0b" }}>{lowBatteryCount}</p>
+                  <p style={styles.statLabel}>Low Signal</p>
+                  <p style={{ ...styles.statValue, color: "#f59e0b" }}>
+                    {lowSignalCount}
+                  </p>
                 </div>
               </div>
             )}
@@ -169,7 +288,7 @@ export default function Dashboard() {
             <Search size={16} style={styles.searchIcon} />
             <input
               type="text"
-              placeholder="Search by plate, unit name, or officer..."
+              placeholder="Search by plate or personnel..."
               style={styles.searchInput}
               value={searchTerm}
               onChange={(e) => setSearchTerm(e.target.value)}
@@ -185,7 +304,11 @@ export default function Dashboard() {
         {loading ? (
           <div style={styles.loaderArea} role="status" aria-live="polite">
             <div style={styles.loaderSpinner}>
-              <Loader2 size={28} color="#3b82f6" style={{ animation: "spin 1s linear infinite" }} />
+              <Loader2
+                size={28}
+                color="#3b82f6"
+                style={{ animation: "spin 1s linear infinite" }}
+              />
             </div>
             <p style={styles.loaderText}>Syncing Fleet Data...</p>
           </div>
@@ -194,7 +317,9 @@ export default function Dashboard() {
             <MapPin size={40} color="#334155" />
             <p style={styles.emptyTitle}>No units found</p>
             <p style={styles.emptyText}>
-              {searchTerm ? "Try a different search term." : "No vehicles are registered in the system."}
+              {searchTerm
+                ? "Try a different search term."
+                : "No vehicles are registered in the system."}
             </p>
           </div>
         ) : (
@@ -219,6 +344,7 @@ export default function Dashboard() {
         .vehicle-card:hover .track-btn { background-color: rgba(37,99,235,0.25) !important; color: #93c5fd !important; border-color: rgba(59,130,246,0.4) !important; }
         .refresh-btn:hover { border-color: #334155 !important; color: #94a3b8 !important; }
         .logout-btn:hover { border-color: rgba(239,68,68,0.4) !important; color: #fca5a5 !important; }
+        button[style*="rgba(37,99,235,0.08)"]:hover { background-color: rgba(37,99,235,0.15) !important; border-color: rgba(59,130,246,0.4) !important; }
       `}</style>
     </div>
   );
@@ -226,7 +352,12 @@ export default function Dashboard() {
 
 function VehicleCard({ vehicle, onClick }) {
   const isActive = vehicle.status === "Active";
-  const batteryColor = vehicle.battery < 20 ? "#ef4444" : vehicle.battery > 50 ? "#10b981" : "#f59e0b";
+  const signalColor =
+    vehicle.signal < 20
+      ? "#ef4444"
+      : vehicle.signal > 50
+        ? "#10b981"
+        : "#f59e0b";
 
   return (
     <div
@@ -238,18 +369,31 @@ function VehicleCard({ vehicle, onClick }) {
       onKeyDown={(e) => e.key === "Enter" && onClick()}
     >
       <div style={cardStyles.cardHeader}>
-        <div style={{
-          ...cardStyles.statusBadge,
-          backgroundColor: isActive ? "rgba(16,185,129,0.12)" : "rgba(100,116,139,0.08)",
-          borderColor: isActive ? "rgba(16,185,129,0.25)" : "rgba(100,116,139,0.15)",
-        }}>
-          <span style={{
-            ...cardStyles.statusDot,
-            backgroundColor: isActive ? "#10b981" : "#475569",
-            boxShadow: isActive ? "0 0 8px #10b981" : "none",
-            animation: isActive ? "pulse 2s ease-in-out infinite" : "none",
-          }} />
-          <span style={{ ...cardStyles.statusText, color: isActive ? "#10b981" : "#64748b" }}>
+        <div
+          style={{
+            ...cardStyles.statusBadge,
+            backgroundColor: isActive
+              ? "rgba(16,185,129,0.12)"
+              : "rgba(100,116,139,0.08)",
+            borderColor: isActive
+              ? "rgba(16,185,129,0.25)"
+              : "rgba(100,116,139,0.15)",
+          }}
+        >
+          <span
+            style={{
+              ...cardStyles.statusDot,
+              backgroundColor: isActive ? "#10b981" : "#475569",
+              boxShadow: isActive ? "0 0 8px #10b981" : "none",
+              animation: isActive ? "pulse 2s ease-in-out infinite" : "none",
+            }}
+          />
+          <span
+            style={{
+              ...cardStyles.statusText,
+              color: isActive ? "#10b981" : "#64748b",
+            }}
+          >
             {vehicle.status}
           </span>
         </div>
@@ -257,21 +401,24 @@ function VehicleCard({ vehicle, onClick }) {
       </div>
 
       <h2 style={cardStyles.plate}>{vehicle.plate}</h2>
-      {vehicle.unitName && <p style={cardStyles.unitName}>{vehicle.unitName}</p>}
-      {vehicle.officer && <p style={cardStyles.officer}>{vehicle.officer}</p>}
+      {vehicle.personnel && (
+        <p style={cardStyles.personnel}>{vehicle.personnel}</p>
+      )}
 
       <div style={cardStyles.divider} />
 
       <div style={cardStyles.metricsRow}>
         <div style={cardStyles.metric}>
-          <Battery size={14} color={batteryColor} />
-          <span style={{ ...cardStyles.metricValue, color: batteryColor }}>
-            {vehicle.battery}%
+          <Wifi size={14} color={signalColor} />
+          <span style={{ ...cardStyles.metricValue, color: signalColor }}>
+            {vehicle.signal}%
           </span>
         </div>
         <div style={cardStyles.metric}>
           <Gauge size={14} color="#3b82f6" />
-          <span style={cardStyles.metricValue}>{Number(vehicle.speed).toFixed(1)} km/h</span>
+          <span style={cardStyles.metricValue}>
+            {Number(vehicle.speed).toFixed(1)} km/h
+          </span>
         </div>
       </div>
 
@@ -299,7 +446,8 @@ const styles = {
   backgroundGlow: {
     position: "fixed",
     inset: 0,
-    background: "radial-gradient(ellipse at 10% 20%, rgba(59,130,246,0.05) 0%, transparent 50%), radial-gradient(ellipse at 90% 80%, rgba(16,185,129,0.04) 0%, transparent 50%)",
+    background:
+      "radial-gradient(ellipse at 10% 20%, rgba(59,130,246,0.05) 0%, transparent 50%), radial-gradient(ellipse at 90% 80%, rgba(16,185,129,0.04) 0%, transparent 50%)",
     pointerEvents: "none",
     zIndex: 0,
   },
@@ -404,6 +552,21 @@ const styles = {
     transition: "all 0.2s",
     fontFamily: "inherit",
   },
+  navMapBtn: {
+    display: "inline-flex",
+    alignItems: "center",
+    gap: "8px",
+    padding: "0 14px",
+    height: "34px",
+    borderRadius: "10px",
+    border: "1px solid rgba(59,130,246,0.3)",
+    backgroundColor: "rgba(37,99,235,0.12)",
+    color: "#bfdbfe",
+    cursor: "pointer",
+    fontWeight: 600,
+    transition: "all 0.2s",
+    fontFamily: "inherit",
+  },
   logoutBtn: {
     display: "flex",
     alignItems: "center",
@@ -425,6 +588,27 @@ const styles = {
     gap: "16px",
     marginBottom: "28px",
     flexWrap: "wrap",
+  },
+  managementNav: {
+    display: "flex",
+    gap: "12px",
+    marginBottom: "24px",
+    flexWrap: "wrap",
+  },
+  mgmtBtn: {
+    display: "inline-flex",
+    alignItems: "center",
+    gap: "8px",
+    padding: "8px 14px",
+    borderRadius: "8px",
+    border: "1px solid rgba(59,130,246,0.2)",
+    backgroundColor: "rgba(37,99,235,0.08)",
+    color: "#93c5fd",
+    cursor: "pointer",
+    fontWeight: "500",
+    fontSize: "12px",
+    transition: "all 0.2s",
+    fontFamily: "inherit",
   },
   statCard: {
     backgroundColor: "#0f1f36",
@@ -600,7 +784,7 @@ const cardStyles = {
     color: "#94a3b8",
     fontWeight: "500",
   },
-  officer: {
+  personnel: {
     margin: 0,
     fontSize: "12px",
     color: "#475569",

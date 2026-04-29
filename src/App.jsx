@@ -7,8 +7,13 @@ import {
 } from "react-router-dom";
 import Dashboard from "./pages/Dashboard";
 import Tracker from "./pages/Tracker";
+import FleetMap from "./pages/FleetMap";
 import Login from "./pages/Login";
 import MFASetup from "./pages/MFASetup";
+import Unit from "./pages/Unit";
+import Personnel from "./pages/Personnel";
+import Schedule from "./pages/Schedule";
+import Vehicle from "./pages/Vehicle";
 import ProtectedRoute from "./components/ProtectedRoute";
 
 function App() {
@@ -30,10 +35,55 @@ function App() {
         />
 
         <Route
+          path="/track-all"
+          element={
+            <ProtectedRoute>
+              <FleetMap />
+            </ProtectedRoute>
+          }
+        />
+
+        <Route
           path="/track/:vehicleId"
           element={
             <ProtectedRoute>
               <Tracker />
+            </ProtectedRoute>
+          }
+        />
+
+        <Route
+          path="/manage/units"
+          element={
+            <ProtectedRoute>
+              <Unit />
+            </ProtectedRoute>
+          }
+        />
+
+        <Route
+          path="/manage/personnel"
+          element={
+            <ProtectedRoute>
+              <Personnel />
+            </ProtectedRoute>
+          }
+        />
+
+        <Route
+          path="/manage/schedule"
+          element={
+            <ProtectedRoute>
+              <Schedule />
+            </ProtectedRoute>
+          }
+        />
+
+        <Route
+          path="/manage/vehicles"
+          element={
+            <ProtectedRoute>
+              <Vehicle />
             </ProtectedRoute>
           }
         />
